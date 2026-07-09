@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>System Monitor — Kafka Notification System</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #060910;
+    --surface: #0d1117;
+    --surface2: #161b22;
+    --border: rgba(255,255,255,0.06);
+    --border2: rgba(255,255,255,0.12);
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --green: #3fb950;
+    --green-dim: rgba(63,185,80,0.12);
+    --blue: #58a6ff;
+    --blue-dim: rgba(88,166,255,0.1);
+    --amber: #d29922;
+    --amber-dim: rgba(210,153,34,0.12);
+    --red: #f85149;
+    --red-dim: rgba(248,81,73,0.12);
+    --purple: #bc8cff;
+    --purple-dim: rgba(188,140,255,0.1);
+    --cyan: #39d353;
+    --font: 'Outfit', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(63,185,80,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(63,185,80,0.03) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border2);
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .header-left { display: flex; flex-direction: column; gap: 4px; }
+
+  .header-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .live-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(63,185,80,0.4);
+    animation: ping 1.5s ease-in-out infinite;
+  }
+
+  @keyframes ping {
+    0%   { box-shadow: 0 0 0 0 rgba(63,185,80,0.4); }
+    70%  { box-shadow: 0 0 0 8px rgba(63,185,80,0); }
+    100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); }
+  }
+
+  .header-sub { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+
+  .refresh-info {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+
+  .refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 6px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .refresh-btn:hover { border-color: var(--green); color: var(--green); }
+
+  /* Service status cards */
+  .services { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+
+  .service-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .service-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .service-card.up::before { background: var(--green); }
+  .service-card.down::before { background: var(--red); }
+  .service-card.checking::before { background: var(--amber); }
+
+  .service-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .service-name { font-size: 14px; font-weight: 600; }
+  .service-port { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .status-pill {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    letter-spacing: 1px;
+  }
+  .status-pill.up      { background: var(--green-dim); color: var(--green); }
+  .status-pill.down    { background: var(--red-dim); color: var(--red); }
+  .status-pill.checking { background: var(--amber-dim); color: var(--amber); }
+
+  .service-meta { display: flex; flex-direction: column; gap: 6px; }
+  .meta-row { display: flex; justify-content: space-between; font-size: 12px; }
+  .meta-key { color: var(--muted); }
+  .meta-val { font-family: var(--mono); color: var(--text); }
+
+  /* Metrics grid */
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 0.3s;
+  }
+  .metric-card:hover { border-color: var(--border2); }
+
+  .metric-label { font-size: 11px; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; }
+  .metric-value { font-size: 28px; font-weight: 700; font-family: var(--mono); transition: color 0.3s; }
+  .metric-sub   { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+  .metric-card.c-green .metric-value { color: var(--green); }
+  .metric-card.c-blue  .metric-value { color: var(--blue); }
+  .metric-card.c-amber .metric-value { color: var(--amber); }
+  .metric-card.c-red   .metric-value { color: var(--red); }
+  .metric-card.c-purple .metric-value { color: var(--purple); }
+  .metric-card.c-cyan   .metric-value { color: var(--cyan); }
+
+  /* Event breakdown */
+  .breakdown { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+
+  .event-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .event-row:last-child { border-bottom: none; }
+
+  .event-icon { font-size: 18px; width: 28px; text-align: center; }
+  .event-name { flex: 1; font-size: 13px; font-family: var(--mono); }
+  .event-bar-wrap { flex: 2; height: 6px; background: var(--surface2); border-radius: 999px; overflow: hidden; }
+  .event-bar { height: 100%; border-radius: 999px; transition: width 0.8s ease; }
+  .event-count { font-family: var(--mono); font-size: 13px; min-width: 40px; text-align: right; }
+
+  /* Activity log */
+  .log-section { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; overflow: hidden; }
+  .log-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .log-body { max-height: 240px; overflow-y: auto; padding: 8px; }
+  .log-body::-webkit-scrollbar { width: 4px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .log-entry {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    display: flex;
+    gap: 12px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+
+  .log-time { color: var(--muted); min-width: 80px; }
+  .log-msg  { color: var(--text); }
+  .log-entry.ok   { background: var(--green-dim); }
+  .log-entry.warn { background: var(--amber-dim); }
+  .log-entry.err  { background: var(--red-dim); }
+
+  .kafka-info {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+  }
+
+  .kafka-item { display: flex; flex-direction: column; gap: 4px; }
+  .kafka-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .kafka-value { font-family: var(--mono); font-size: 14px; color: var(--blue); }
+
+  #last-updated { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="header-title">
+        <div class="live-dot"></div>
+        System Monitor
+      </div>
+      <div class="header-sub">Kafka-Based Real-Time Notification System · CURAJ BTech CSE 2026</div>
+    </div>
+    <div class="refresh-info">
+      <span id="last-updated">Never updated</span>
+      <button class="refresh-btn" onclick="fetchAll()">⟳ Refresh</button>
+    </div>
+  </div>
+
+  <!-- Service Status -->
+  <div class="section-title">Service Health</div>
+  <div class="services">
+    <div class="service-card checking" id="card-notification">
+      <div class="service-header">
+        <div>
+          <div class="service-name">Notification Service</div>
+          <div class="service-port">localhost:8081</div>
+        </div>
+        <div class="status-pill checking" id="pill-notification">CHECKING</div>
+      </div>
+      <div class="service-meta">
+        <div class="meta-row"><span class="meta-key">Kafka consumer group</span><span class="meta-val">notification-group-v2</span></div>
+        <div class="meta-row"><span class="meta-key">Topic</span><span class="meta-val">ecommerce-events</span></div>
+        <div class="meta-row"><span class="meta-key">Redis</span><span class="meta-val" id="redis-status">checking...</span></div>
+        <div class="meta-row"><span class="meta-key">Uptime</span><span class="meta-val" id="uptime">—</span></div>
+      </div>
+    </div>
+
+    <div class="service-card checking" id="card-event">
+      <div class="service-header">
+        <div>
+          <div class="service-name">Event Service</div>
+          <div class="service-port">localhost:8082</div>
+        </div>
+        <div class="status-pill checking" id="pill-event">CHECKING</div>
+      </div>
+      <div class="service-meta">
+        <div class="meta-row"><span class="meta-key">Kafka producer</span><span class="meta-val">idempotent · acks=all</span></div>
+        <div class="meta-row"><span class="meta-key">Topic</span><span class="meta-val">ecommerce-events</span></div>
+        <div class="meta-row"><span class="meta-key">Dashboard</span><span class="meta-val"><a href="http://localhost:8082" style="color:var(--blue)">ShopFlow UI</a></span></div>
+        <div class="meta-row"><span class="meta-key">Retries</span><span class="meta-val">3 · DLT enabled</span></div>
+      </div>
+    </div>
+
+    <div class="service-card up">
+      <div class="service-header">
+        <div>
+          <div class="service-name">Kafka Broker</div>
+          <div class="service-port">localhost:9092</div>
+        </div>
+        <div class="status-pill up">RUNNING</div>
+      </div>
+      <div class="service-meta">
+        <div class="meta-row"><span class="meta-key">Topic</span><span class="meta-val">ecommerce-events</span></div>
+        <div class="meta-row"><span class="meta-key">DLT</span><span class="meta-val">ecommerce-events.DLT</span></div>
+        <div class="meta-row"><span class="meta-key">Version</span><span class="meta-val">4.1.1</span></div>
+        <div class="meta-row"><span class="meta-key">Offset mode</span><span class="meta-val">record · latest</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kafka metrics -->
+  <div class="section-title">Kafka Metrics — Notification Service</div>
+  <div class="metrics-grid">
+    <div class="metric-card c-green">
+      <div class="metric-label">Total Consumed</div>
+      <div class="metric-value" id="m-total">—</div>
+      <div class="metric-sub">since startup</div>
+    </div>
+    <div class="metric-card c-blue">
+      <div class="metric-label">Emails Sent</div>
+      <div class="metric-value" id="m-emails">—</div>
+      <div class="metric-sub">via Gmail SMTP</div>
+    </div>
+    <div class="metric-card c-amber">
+      <div class="metric-label">Avg Processing</div>
+      <div class="metric-value" id="m-avg">—</div>
+      <div class="metric-sub">milliseconds</div>
+    </div>
+    <div class="metric-card c-red">
+      <div class="metric-label">Dead Letters</div>
+      <div class="metric-value" id="m-dlt">—</div>
+      <div class="metric-sub">failed messages</div>
+    </div>
+  </div>
+
+  <!-- Event breakdown -->
+  <div class="section-title">Event Breakdown</div>
+  <div class="breakdown">
+    <div class="event-row">
+      <div class="event-icon">📦</div>
+      <div class="event-name">ORDER_PLACED</div>
+      <div class="event-bar-wrap"><div class="event-bar" id="bar-order" style="width:0%;background:var(--amber)"></div></div>
+      <div class="event-count c-amber" id="cnt-order" style="color:var(--amber)">0</div>
+    </div>
+    <div class="event-row">
+      <div class="event-icon">💳</div>
+      <div class="event-name">PAYMENT_DONE</div>
+      <div class="event-bar-wrap"><div class="event-bar" id="bar-payment" style="width:0%;background:var(--blue)"></div></div>
+      <div class="event-count" id="cnt-payment" style="color:var(--blue)">0</div>
+    </div>
+    <div class="event-row">
+      <div class="event-icon">🚚</div>
+      <div class="event-name">SHIPMENT_UPDATE</div>
+      <div class="event-bar-wrap"><div class="event-bar" id="bar-shipment" style="width:0%;background:var(--purple)"></div></div>
+      <div class="event-count" id="cnt-shipment" style="color:var(--purple)">0</div>
+    </div>
+  </div>
+
+  <!-- Kafka config info -->
+  <div class="section-title">Kafka Configuration</div>
+  <div class="kafka-info">
+    <div class="kafka-item"><div class="kafka-label">Bootstrap Server</div><div class="kafka-value">localhost:9092</div></div>
+    <div class="kafka-item"><div class="kafka-label">Topic</div><div class="kafka-value">ecommerce-events</div></div>
+    <div class="kafka-item"><div class="kafka-label">Consumer Group</div><div class="kafka-value">notification-group-v2</div></div>
+    <div class="kafka-item"><div class="kafka-label">Dead Letter Topic</div><div class="kafka-value">ecommerce-events.DLT</div></div>
+    <div class="kafka-item"><div class="kafka-label">Producer Acks</div><div class="kafka-value">all (idempotent)</div></div>
+    <div class="kafka-item"><div class="kafka-label">Ack Mode</div><div class="kafka-value">record</div></div>
+  </div>
+
+  <!-- Activity log -->
+  <div class="log-section">
+    <div class="log-header">
+      <div class="section-title" style="margin:0">Activity Log</div>
+      <button class="refresh-btn" onclick="clearLog()">Clear</button>
+    </div>
+    <div class="log-body" id="log-body">
+      <div class="log-entry ok"><span class="log-time">--:--:--</span><span class="log-msg">Dashboard loaded — waiting for data...</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API_NOTIFICATION = 'http://localhost:8081';
+const API_EVENT        = 'http://localhost:8082';
+
+function fmt(n) { return n !== undefined && n !== null ? n : '—'; }
+
+function addLog(msg, type = 'ok') {
+  const body = document.getElementById('log-body');
+  const div  = document.createElement('div');
+  div.className = 'log-entry ' + type;
+  const now = new Date().toLocaleTimeString();
+  div.innerHTML = `<span class="log-time">${now}</span><span class="log-msg">${msg}</span>`;
+  body.insertBefore(div, body.firstChild);
+  if (body.children.length > 50) body.removeChild(body.lastChild);
+}
+
+function clearLog() {
+  document.getElementById('log-body').innerHTML = '';
+}
+
+function setServiceStatus(id, status) {
+  const card = document.getElementById('card-' + id);
+  const pill = document.getElementById('pill-' + id);
+  card.className = 'service-card ' + status;
+  pill.className = 'status-pill ' + status;
+  pill.textContent = status.toUpperCase();
+}
+
+async function checkNotificationService() {
+  try {
+    const r = await fetch(API_NOTIFICATION + '/actuator/health', { signal: AbortSignal.timeout(3000) });
+    const data = await r.json();
+    if (data.status === 'UP') {
+      setServiceStatus('notification', 'up');
+      // Check Redis component
+      const redisStatus = data.components?.redis?.status || 'UP';
+      document.getElementById('redis-status').textContent = redisStatus === 'UP' ? '✅ Connected' : '❌ ' + redisStatus;
+      addLog('Notification Service: UP', 'ok');
+    } else {
+      setServiceStatus('notification', 'down');
+    }
+  } catch {
+    setServiceStatus('notification', 'down');
+    addLog('Notification Service: unreachable', 'err');
+  }
+}
+
+async function checkEventService() {
+  try {
+    const r = await fetch(API_EVENT + '/api/events/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      setServiceStatus('event', 'up');
+      addLog('Event Service: UP', 'ok');
+    } else {
+      setServiceStatus('event', 'down');
+    }
+  } catch {
+    setServiceStatus('event', 'down');
+    addLog('Event Service: unreachable', 'err');
+  }
+}
+
+async function fetchNotificationMetrics() {
+  try {
+    const r = await fetch(API_NOTIFICATION + '/metrics/summary', { signal: AbortSignal.timeout(3000) });
+    const d = await r.json();
+
+    document.getElementById('m-total').textContent  = fmt(d.totalMessagesConsumed);
+    document.getElementById('m-emails').textContent = fmt(d.emailsSent);
+    document.getElementById('m-avg').textContent    = fmt(d.avgProcessingTimeMs) + 'ms';
+    document.getElementById('m-dlt').textContent    = fmt(d.deadLetterCount);
+
+    // Uptime
+    const s = d.uptimeSeconds || 0;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    document.getElementById('uptime').textContent =
+      `${h}h ${m}m ${sec}s`;
+
+    // Event breakdown bars
+    const total = (d.orderPlaced || 0) + (d.paymentDone || 0) + (d.shipmentUpdate || 0) || 1;
+    document.getElementById('cnt-order').textContent    = d.orderPlaced || 0;
+    document.getElementById('cnt-payment').textContent  = d.paymentDone || 0;
+    document.getElementById('cnt-shipment').textContent = d.shipmentUpdate || 0;
+
+    document.getElementById('bar-order').style.width    = ((d.orderPlaced || 0) / total * 100) + '%';
+    document.getElementById('bar-payment').style.width  = ((d.paymentDone || 0) / total * 100) + '%';
+    document.getElementById('bar-shipment').style.width = ((d.shipmentUpdate || 0) / total * 100) + '%';
+
+  } catch {
+    addLog('Could not fetch notification metrics', 'warn');
+  }
+}
+
+async function fetchAll() {
+  await Promise.all([
+    checkNotificationService(),
+    checkEventService(),
+    fetchNotificationMetrics()
+  ]);
+  document.getElementById('last-updated').textContent =
+    'Updated ' + new Date().toLocaleTimeString();
+}
+
+// Initial load + auto-refresh every 5 seconds
+fetchAll();
+setInterval(fetchAll, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Notifications</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            background: #667eea;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .badge {
+            background: red;
+            border-radius: 50%;
+            padding: 4px 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 800px;
+            margin: auto;
+        }
+
+        .actions {
+            margin-bottom: 15px;
+        }
+
+        button {
+            padding: 6px 12px;
+            margin-right: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .sound-btn { background: #28a745; color: white; }
+        .logout-btn { background: #dc3545; color: white; }
+
+        .notification {
+            background: white;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .unread {
+            border-left: 5px solid red;
+            background: #fff5f5;
+        }
+
+        .read { opacity: 0.6; }
+
+        small { color: #666; }
+
+        #status {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h3>🔔 Notifications <span id="unreadCount" class="badge">0</span></h3>
+</header>
+
+<div class="container">
+    <div class="actions">
+        <button class="sound-btn" onclick="enableSound()">🔊 Enable Sound</button>
+        <button class="logout-btn" onclick="logout()">🚪 Logout</button>
+    </div>
+    <div id="status">Connecting...</div>
+    <div id="notifications"></div>
+</div>
+
+<audio id="notifSound" preload="auto">
+    <source src="notification.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+const notificationDiv = document.getElementById("notifications");
+const unreadBadge     = document.getElementById("unreadCount");
+const statusDiv       = document.getElementById("status");
+const audio           = document.getElementById("notifSound");
+
+let unreadCount  = 0;
+let soundEnabled = false;
+let currentUserId = null;
+
+function enableSound() {
+    audio.play().then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        soundEnabled = true;
+        alert("🔔 Sound enabled");
+    }).catch(() => alert("Click again to allow sound"));
+}
+
+function playSound() {
+    if (!soundEnabled) return;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+}
+
+function updateBadge() {
+    unreadBadge.innerText = unreadCount;
+    unreadBadge.style.display = unreadCount > 0 ? "inline-block" : "none";
+}
+
+function renderNotification(n) {
+    const div  = document.createElement("div");
+    div.className = "notification " + (n.read ? "read" : "unread");
+    const time = n.timestamp ? new Date(n.timestamp).toLocaleString() : "";
+    div.innerHTML = `
+        <p>${n.message}</p>
+        <small>${time}</small><br>
+        ${!n.read ? `
+            <button onclick="markAsRead('${n.id}', this)">Mark as Read</button>
+            <button onclick="deleteNotification('${n.id}', this)">Delete</button>
+        ` : ""}
+    `;
+    notificationDiv.prepend(div);
+}
+
+function markAsRead(id, btn) {
+    fetch("/notifications/read/" + id, { method: "PUT", credentials: "include" })
+        .then(() => {
+            const card = btn.parentElement;
+            card.classList.remove("unread");
+            card.classList.add("read");
+            btn.parentElement.querySelectorAll("button").forEach(b => b.remove());
+            unreadCount--;
+            updateBadge();
+        });
+}
+
+function deleteNotification(id, btn) {
+    fetch("/notifications/delete/" + id, { method: "DELETE", credentials: "include" })
+        .then(() => {
+            const card = btn.parentElement;
+            if (card.classList.contains("unread")) unreadCount--;
+            card.remove();
+            updateBadge();
+        });
+}
+
+function logout() {
+    fetch("/auth/logout", { method: "POST", credentials: "include" })
+        .then(() => window.location.replace("login.html"));
+}
+
+// ── Main init — get userId from session first ──────────────────
+fetch("/auth/me", { credentials: "include" })
+    .then(r => r.json())
+    .then(data => {
+
+        if (data.status !== "authenticated") {
+            // Not logged in — redirect to login
+            window.location.href = "login.html";
+            return;
+        }
+
+        currentUserId = data.userId;
+        statusDiv.textContent = "Logged in as: " + currentUserId;
+
+        // 1. Load old notifications from Redis
+        fetch("/notifications", { credentials: "include" })
+            .then(res => res.json())
+            .then(list => {
+                list.forEach(n => {
+                    renderNotification(n);
+                    if (!n.read) unreadCount++;
+                });
+                updateBadge();
+            })
+            .catch(() => statusDiv.textContent = "Could not load notifications");
+
+        // 2. Connect WebSocket and subscribe to correct topic
+        const socket = new SockJS("/ws");
+        const stompClient = Stomp.over(socket);
+        stompClient.debug = null;
+
+        stompClient.connect({}, () => {
+            // Subscribe to /topic/notifications/{userId}
+            // This matches: messagingTemplate.convertAndSend("/topic/notifications/" + userId, ...)
+            stompClient.subscribe("/topic/notifications/" + currentUserId, msg => {
+                const notification = JSON.parse(msg.body);
+                renderNotification(notification);
+                unreadCount++;
+                updateBadge();
+                playSound();
+            });
+
+            statusDiv.textContent = "🟢 Connected — waiting for notifications...";
+        }, () => {
+            statusDiv.textContent = "🔴 WebSocket disconnected";
+        });
+    })
+    .catch(() => {
+        window.location.href = "login.html";
+    });
+</script>
+
+</body>
+</html>

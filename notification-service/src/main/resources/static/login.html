@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login | Notification Service</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+        }
+
+        .login-box {
+            background: #fff;
+            padding: 30px;
+            width: 340px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+
+        h2 { margin-bottom: 8px; }
+
+        .subtitle {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 24px;
+        }
+
+        .field-label {
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .email-note {
+            font-size: 11px;
+            color: #aaa;
+            text-align: left;
+            margin-top: -12px;
+            margin-bottom: 16px;
+        }
+
+        button {
+            width: 100%;
+            padding: 11px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background: #5a67d8; }
+        button:disabled { background: #a0aec0; cursor: not-allowed; }
+
+        #msg {
+            font-size: 13px;
+            margin-top: 14px;
+            min-height: 18px;
+        }
+
+        .success { color: #38a169; }
+        .error   { color: #e53e3e; }
+
+        small {
+            display: block;
+            margin-top: 14px;
+            color: #999;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-box">
+    <h2>🔐 Login</h2>
+    <div class="subtitle">Kafka Notification Service</div>
+
+    <div class="field-label">User ID</div>
+    <input type="text" id="userId" placeholder="e.g. user101"/>
+
+    <div class="field-label">Email Address</div>
+    <input type="email" id="email" placeholder="e.g. mohit@gmail.com"/>
+    <div class="email-note">📧 Required to receive email notifications</div>
+
+    <button id="loginBtn" onclick="login()">Login</button>
+
+    <div id="msg"></div>
+    <small>Session-based login · Email stored for notifications</small>
+</div>
+
+<script>
+function login() {
+    const userId = document.getElementById("userId").value.trim();
+    const email  = document.getElementById("email").value.trim();
+    const btn    = document.getElementById("loginBtn");
+    const msg    = document.getElementById("msg");
+
+    if (!userId) {
+        showMsg("User ID is required", "error");
+        return;
+    }
+
+    if (!email) {
+        showMsg("Email is required for notifications", "error");
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Logging in...";
+
+    const url = `http://localhost:8081/auth/login?userId=${encodeURIComponent(userId)}&email=${encodeURIComponent(email)}`;
+
+    fetch(url, { method: "POST", credentials: "include" })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === "success") {
+                showMsg("✅ Login successful! Redirecting...", "success");
+                setTimeout(() => window.location.href = "notification.html", 800);
+            } else {
+                showMsg("Login failed. Try again.", "error");
+                btn.disabled = false;
+                btn.textContent = "Login";
+            }
+        })
+        .catch(() => {
+            showMsg("❌ Cannot reach server. Is notification-service running on :8081?", "error");
+            btn.disabled = false;
+            btn.textContent = "Login";
+        });
+}
+
+function showMsg(text, type) {
+    const el = document.getElementById("msg");
+    el.textContent = text;
+    el.className = type;
+}
+
+// Allow Enter key to submit
+document.addEventListener("keydown", e => {
+    if (e.key === "Enter") login();
+});
+</script>
+
+</body>
+</html>
